@@ -27,7 +27,7 @@ from q2_sample_classifier.tests.test_base_class import \
 from q2_sample_classifier.classify import (
     regress_samples_ncv, classify_samples_ncv, fit_classifier, fit_regressor,
     detect_outliers, split_table, predict_classification,
-    predict_regression)
+    predict_regression, get_predprob_splits)
 from q2_sample_classifier.utilities import (
     _set_parameters_and_estimator, _train_adaboost_base_estimator,
     _match_series_or_die, _extract_features)
@@ -152,7 +152,7 @@ class EstimatorsTests(SampleClassifierTestPluginBase):
             [1, 0, 4, 4],
             [4, 4, 0, 1],
             [4, 4, 1, 0],
-            ], ids=sample_ids)
+        ], ids=sample_ids)
 
         dm = qiime2.Artifact.import_data('DistanceMatrix', distance_matrix)
         categories = pd.Series(('skinny', 'skinny', 'fat', 'fat'),
@@ -182,7 +182,7 @@ class EstimatorsTests(SampleClassifierTestPluginBase):
             [2, 0, 1, 1],
             [3, 1, 0, 1],
             [3, 1, 1, 0],
-            ], ids=sample_ids)
+        ], ids=sample_ids)
 
         dm = qiime2.Artifact.import_data('DistanceMatrix', distance_matrix)
         categories = pd.Series(('fat', 'skinny', 'skinny', 'skinny'),
@@ -212,7 +212,7 @@ class EstimatorsTests(SampleClassifierTestPluginBase):
             [2, 0, 3, 4],
             [1, 3, 0, 3],
             [5, 4, 3, 0],
-            ], ids=sample_ids)
+        ], ids=sample_ids)
 
         dm = qiime2.Artifact.import_data('DistanceMatrix', distance_matrix)
         categories = pd.Series(('fat', 'skinny', 'skinny', 'skinny'),
@@ -459,6 +459,53 @@ class EstimatorsTests(SampleClassifierTestPluginBase):
                     classifier, correct_results,
                     seeded_predict_results[classifier]))
 
+    def test_get_predprob_splits(self):
+        for classifier in ['RandomForestClassifier', 'ExtraTreesClassifier',
+                           'GradientBoostingClassifier', 'AdaBoostClassifier',
+                           'LinearSVC', 'SVC', 'KNeighborsClassifier']:
+            # split to train and test
+            X_train, X_test = split_table(self.table_chard_fp,
+                                          self.mdc_chard_fp,
+                                          test_size=0.2, random_state=123,
+                                          stratify=True,
+                                          missing_samples='ignore')
+            # train classifier
+            estimator, importances = fit_classifier(
+                X_train, self.mdc_chard_fp, random_state=123,
+                n_estimators=2, estimator=classifier, n_jobs=1,
+                missing_samples='ignore')
+            # get predprob and truth values for both splits
+            prob_truth_train, prob_truth_test, = get_predprob_splits(
+                X_train, X_test,
+                estimator,
+                self.mdc_chard_fp,
+                n_jobs=1,
+                missing_samples='ignore')
+            # transform original data
+            df_metadata = self.mdc_chard_fp.to_dataframe()
+            target2predict = df_metadata.columns[0]
+            ls_unique_classes = df_metadata[target2predict].unique().tolist()
+
+            # assert that both prob_truth dataframes have same columns
+            self.assertEqual(prob_truth_train.columns.tolist(),
+                             prob_truth_test.columns.tolist())
+
+            for df in [prob_truth_train, prob_truth_test]:
+                # assert that predicted probab and truth values sum to 1
+                for prefix in ['predprob_', 'true_']:
+                    ls_col_w_prefix = [col for col in df.columns
+                                       if col.startswith(prefix)]
+                    sum_w_prefix = round(
+                        df[ls_col_w_prefix].sum(axis=1).unique()[0], 0)
+                    self.assertEquals(sum_w_prefix, 1.0)
+
+                # assert that all classes in metadata are present in df
+                set_classes_in_prob = set(col.replace('predprob_', '')
+                                          .replace('true_', '')
+                                          .replace(target2predict+'_', '')
+                                          for col in df.columns.tolist())
+                self.assertEqual(set(ls_unique_classes), set_classes_in_prob)
+
     def test_predict_regressions(self):
         for regressor in ['RandomForestRegressor', 'ExtraTreesRegressor',
                           'GradientBoostingRegressor', 'AdaBoostRegressor',
@@ -526,7 +573,10 @@ seeded_results = {
     'ExtraTreesClassifier': 0.454545454545,
     'GradientBoostingClassifier': 0.272727272727,
     'AdaBoostClassifier': 0.272727272727,
-    'LinearSVC': 0.727272727273,
+    # ! AA changed results of LinearSVC to match
+    # ! results from SVC(kernel='linear')
+    # ! used to be: 'LinearSVC': 0.727272727273,
+    'LinearSVC': 0.818182,
     'SVC': 0.36363636363636365,
     'KNeighborsClassifier': 0.363636363636,
     'RandomForestRegressor': 23.226508,

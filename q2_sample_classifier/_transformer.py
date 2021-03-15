@@ -21,7 +21,8 @@ from sklearn.pipeline import Pipeline
 from .plugin_setup import plugin
 from ._format import (SampleEstimatorDirFmt, JSONFormat, BooleanSeriesFormat,
                       ImportanceFormat, PredictionsFormat, PickleFormat,
-                      ProbabilitiesFormat)
+                      ProbabilitiesFormat, ProbabilitiesTruthTrainFormat,
+                      ProbabilitiesTruthTestFormat)
 
 
 def _read_dataframe(fh):
@@ -115,6 +116,50 @@ def _11(ff: ProbabilitiesFormat) -> (pd.DataFrame):
 
 @plugin.register_transformer
 def _12(ff: ProbabilitiesFormat) -> (qiime2.Metadata):
+    with ff.open() as fh:
+        return qiime2.Metadata(_read_dataframe(fh).apply(
+            lambda x: pd.to_numeric(x, errors='raise')))
+
+
+@plugin.register_transformer
+def _13(data: pd.DataFrame) -> (ProbabilitiesTruthTrainFormat):
+    ff = ProbabilitiesTruthTrainFormat()
+    with ff.open() as fh:
+        data.to_csv(fh, sep='\t', na_rep=np.nan, header=True)
+    return ff
+
+
+@plugin.register_transformer
+def _14(ff: ProbabilitiesTruthTrainFormat) -> (pd.DataFrame):
+    with ff.open() as fh:
+        return _read_dataframe(fh).apply(
+            lambda x: pd.to_numeric(x, errors='raise'))
+
+
+@plugin.register_transformer
+def _15(ff: ProbabilitiesTruthTrainFormat) -> (qiime2.Metadata):
+    with ff.open() as fh:
+        return qiime2.Metadata(_read_dataframe(fh).apply(
+            lambda x: pd.to_numeric(x, errors='raise')))
+
+
+@plugin.register_transformer
+def _16(data: pd.DataFrame) -> (ProbabilitiesTruthTestFormat):
+    ff = ProbabilitiesTruthTestFormat()
+    with ff.open() as fh:
+        data.to_csv(fh, sep='\t', na_rep=np.nan, header=True)
+    return ff
+
+
+@plugin.register_transformer
+def _17(ff: ProbabilitiesTruthTestFormat) -> (pd.DataFrame):
+    with ff.open() as fh:
+        return _read_dataframe(fh).apply(
+            lambda x: pd.to_numeric(x, errors='raise'))
+
+
+@plugin.register_transformer
+def _18(ff: ProbabilitiesTruthTestFormat) -> (qiime2.Metadata):
     with ff.open() as fh:
         return qiime2.Metadata(_read_dataframe(fh).apply(
             lambda x: pd.to_numeric(x, errors='raise')))

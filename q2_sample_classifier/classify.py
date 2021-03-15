@@ -22,6 +22,7 @@ from .utilities import (_load_data, _prepare_training_data,
                         nested_cross_validation, _fit_estimator,
                         _extract_features, _plot_accuracy,
                         _summarize_estimator, predict_probabilities,
+                        _match_series_or_die,
                         _classifiers)
 
 
@@ -162,6 +163,8 @@ def classify_samples(ctx,
     summarize_estimator = ctx.get_action('sample_classifier', 'summarize')
     confusion = ctx.get_action('sample_classifier', 'confusion_matrix')
     heat = ctx.get_action('sample_classifier', 'heatmap')
+    do_get_predprob_splits = ctx.get_action(
+        'sample_classifier', 'get_predprob_splits')
 
     X_train, X_test = split(table, metadata, test_size, random_state,
                             stratify=True, missing_samples=missing_samples)
@@ -182,8 +185,16 @@ def classify_samples(ctx,
     _heatmap, _ = heat(table, importance, sample_metadata=metadata,
                        group_samples=True, missing_samples=missing_samples)
 
+    predprob_truth_train, predprob_truth_test, = do_get_predprob_splits(
+        X_train, X_test,
+        sample_estimator,
+        metadata,
+        n_jobs,
+        missing_samples)
+
     return (sample_estimator, importance, predictions, summary,
-            accuracy_results, probabilities, _heatmap)
+            accuracy_results, probabilities, _heatmap,
+            predprob_truth_train, predprob_truth_test)
 
 
 def regress_samples(ctx,
@@ -279,6 +290,7 @@ def predict_base(table, sample_estimator, n_jobs):
 
     # log prediction probabilities (classifiers only)
     if sample_estimator.named_steps.est.__class__.__name__ in _classifiers:
+        # ! linear SVM doesn't predict actual probab
         probs = predict_probabilities(sample_estimator, feature_data, index)
     else:
         probs = None
@@ -288,7 +300,7 @@ def predict_base(table, sample_estimator, n_jobs):
 
 def predict_classification(table: biom.Table, sample_estimator: Pipeline,
                            n_jobs: int = defaults['n_jobs']) -> (
-                            pd.Series, pd.DataFrame):
+        pd.Series, pd.DataFrame):
     return predict_base(table, sample_estimator, n_jobs)
 
 
@@ -322,7 +334,7 @@ def regress_samples_ncv(
         estimator: str = defaults['estimator_r'], stratify: str = False,
         parameter_tuning: bool = False,
         missing_samples: str = defaults['missing_samples']
-        ) -> (pd.Series, pd.DataFrame):
+) -> (pd.Series, pd.DataFrame):
 
     y_pred, importances, probabilities = nested_cross_validation(
         table, metadata, cv, random_state, n_jobs, n_estimators, estimator,
@@ -339,7 +351,7 @@ def classify_samples_ncv(
         estimator: str = defaults['estimator_c'],
         parameter_tuning: bool = False,
         missing_samples: str = defaults['missing_samples']
-        ) -> (pd.Series, pd.DataFrame, pd.DataFrame):
+) -> (pd.Series, pd.DataFrame, pd.DataFrame):
 
     y_pred, importances, probabilities = nested_cross_validation(
         table, metadata, cv, random_state, n_jobs, n_estimators, estimator,
@@ -485,3 +497,37 @@ def detect_outliers(table: biom.Table,
     y_pred[y_pred == 1] = 'False'
     y_pred.name = "outlier"
     return y_pred
+
+
+def get_predprob_splits(X_train: biom.Table,
+                        X_test: biom.Table,
+                        sample_estimator: Pipeline,
+                        metadata: qiime2.CategoricalMetadataColumn,
+                        n_jobs: int = defaults['n_jobs'],
+                        missing_samples:
+                        str = defaults['missing_samples']) -> (pd.DataFrame,
+                                                               pd.DataFrame):
+
+    metadata = metadata.to_dataframe()
+    ls_predprob_splits = []
+
+    for split, X in [('train', X_train), ('test', X_test)]:
+        # create predictions
+        _, predprob = predict_base(X, sample_estimator, n_jobs)
+
+        # check and rename columns
+        predprob, true = _match_series_or_die(
+            predprob, metadata, missing_samples)
+        # only one target should be predicted
+        assert(len(true.columns) == 1)
+        target_class_name = true.columns[0]
+        predprob = predprob.add_prefix(
+            'predprob_{}_'.format(target_class_name))
+        true = pd.get_dummies(
+            true, prefix='true_{}'.format(target_class_name))
+
+        # merge predprob & truth to dataframe and save
+        df_predprob_true = predprob.join(true, how='left')
+        ls_predprob_splits.append(df_predprob_true)
+
+    return ls_predprob_splits[0], ls_predprob_splits[1]

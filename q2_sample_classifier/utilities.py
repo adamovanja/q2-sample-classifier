@@ -18,7 +18,8 @@ from sklearn.ensemble import (RandomForestRegressor, RandomForestClassifier,
                               ExtraTreesClassifier, ExtraTreesRegressor,
                               AdaBoostClassifier, GradientBoostingClassifier,
                               AdaBoostRegressor, GradientBoostingRegressor)
-from sklearn.svm import LinearSVC, SVR, SVC
+# from sklearn.svm import LinearSVC
+from sklearn.svm import SVR, SVC
 from sklearn.linear_model import Ridge, Lasso, ElasticNet
 from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
@@ -684,13 +685,21 @@ def predict_probabilities(estimator, test_set, index):
     index: array-like of sample names
     '''
     # most classifiers have a predict_proba attribute
-    try:
-        probs = pd.DataFrame(estimator.predict_proba(test_set),
-                             index=index, columns=estimator.classes_)
+    # try:
+    probs = pd.DataFrame(estimator.predict_proba(test_set),
+                         index=index, columns=estimator.classes_)
     # SVMs use the decision_function attribute
-    except AttributeError:
-        probs = pd.DataFrame(estimator.decision_function(test_set),
-                             index=index, columns=estimator.classes_)
+    # ! AA: this is not really the probability
+    # ! see https://scikit-learn.org/stable/modules/
+    # ! generated/sklearn.svm.SVC.html#sklearn.svm.SVC.decision_function
+    # ! and https://scikit-learn.org/stable/modules/
+    # ! svm.html#scores-probabilities
+    # ! hence added probab = True to SVM and linearSVM
+    # ! (has caveats as outlines in doc above)
+    # ! removed try and except structure
+    # except AttributeError:
+    #     probs = pd.DataFrame(estimator.decision_function(test_set),
+    #                          index=index, columns=estimator.classes_)
     return probs
 
 
@@ -768,11 +777,19 @@ def _select_estimator(estimator, n_jobs, n_estimators, random_state=None):
         estimator = GradientBoostingClassifier(
             n_estimators=n_estimators, random_state=random_state)
     elif estimator == 'LinearSVC':
-        param_dist = parameters['linear_svm']
-        estimator = LinearSVC(random_state=random_state)
+        # ! AA adjusted to get probab from LinearSVM
+        # ! - caveats: https://scikit-learn.org/stable/modules/
+        # ! generated/sklearn.svm.LinearSVC.html
+        param_dist = parameters['svm']
+        # ! used to be: param_dist = parameters['linear_svm']
+        estimator = SVC(kernel='linear', random_state=random_state,
+                        gamma='scale', probability=True)
+        # ! used to be: estimator = LinearSVC(random_state=random_state)
     elif estimator == 'SVC':
         param_dist = parameters['svm']
-        estimator = SVC(kernel='rbf', random_state=random_state, gamma='scale')
+        # ! AA set probab to true
+        estimator = SVC(kernel='rbf', random_state=random_state,
+                        gamma='scale', probability=True)
     elif estimator == 'KNeighborsClassifier':
         param_dist = parameters['kneighbors']
         estimator = KNeighborsClassifier(algorithm='auto')

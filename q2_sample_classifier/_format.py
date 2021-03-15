@@ -176,3 +176,21 @@ class ProbabilitiesFormat(_MultiColumnNumericFormat):
 ProbabilitiesDirectoryFormat = model.SingleFileDirectoryFormat(
     'ProbabilitiesDirectoryFormat', 'class_probabilities.tsv',
     ProbabilitiesFormat)
+
+
+class ProbabilitiesTruthTrainFormat(_MultiColumnNumericFormat):
+    pass
+
+
+ProbabilitiesTruthTrainDirectoryFormat = model.SingleFileDirectoryFormat(
+    'ProbabilitiesTruthTrainDirectoryFormat', 'predprob_truth_train.tsv',
+    ProbabilitiesTruthTrainFormat)
+
+
+class ProbabilitiesTruthTestFormat(_MultiColumnNumericFormat):
+    pass
+
+
+ProbabilitiesTruthTestDirectoryFormat = model.SingleFileDirectoryFormat(
+    'ProbabilitiesTruthTestDirectoryFormat', 'predprob_truth_test.tsv',
+    ProbabilitiesTruthTestFormat)

@@ -23,7 +23,7 @@ from .classify import (
     regress_samples_ncv,
     classify_samples_ncv, fit_classifier, fit_regressor, split_table,
     predict_classification, predict_regression, confusion_matrix, scatterplot,
-    summarize, metatable, heatmap)
+    summarize, metatable, heatmap, get_predprob_splits)
 from .visuals import _custom_palettes
 from ._format import (SampleEstimatorDirFmt,
                       BooleanSeriesFormat,
@@ -33,11 +33,16 @@ from ._format import (SampleEstimatorDirFmt,
                       PredictionsFormat,
                       PredictionsDirectoryFormat,
                       ProbabilitiesFormat,
-                      ProbabilitiesDirectoryFormat)
+                      ProbabilitiesDirectoryFormat,
+                      ProbabilitiesTruthTrainFormat,
+                      ProbabilitiesTruthTrainDirectoryFormat,
+                      ProbabilitiesTruthTestFormat,
+                      ProbabilitiesTruthTestDirectoryFormat)
 
 from ._type import (ClassifierPredictions, RegressorPredictions,
                     SampleEstimator, BooleanSeries, Importance,
-                    Classifier, Regressor, Probabilities)
+                    Classifier, Regressor, Probabilities,
+                    ProbabilitiesTruthTrain, ProbabilitiesTruthTest)
 import q2_sample_classifier
 
 citations = Citations.load('citations.bib', package='q2_sample_classifier')
@@ -120,16 +125,16 @@ parameter_descriptions = {
     'base': {'random_state': 'Seed used by random number generator.',
              'n_jobs': 'Number of jobs to run in parallel.',
              'n_estimators': (
-                'Number of trees to grow for estimation. More trees will '
-                'improve predictive accuracy up to a threshold level, '
-                'but will also increase time and memory requirements. This '
-                'parameter only affects ensemble estimators, such as Random '
-                'Forest, AdaBoost, ExtraTrees, and GradientBoosting.'),
+                 'Number of trees to grow for estimation. More trees will '
+                 'improve predictive accuracy up to a threshold level, '
+                 'but will also increase time and memory requirements. This '
+                 'parameter only affects ensemble estimators, such as Random '
+                 'Forest, AdaBoost, ExtraTrees, and GradientBoosting.'),
              'missing_samples': (
-                'How to handle missing samples in metadata. "error" will fail '
-                'if missing samples are detected. "ignore" will cause the '
-                'feature table and metadata to be filtered, so that only '
-                'samples found in both files are retained.')},
+                 'How to handle missing samples in metadata."error" will fail '
+                 'if missing samples are detected. "ignore" will cause the '
+                 'feature table and metadata to be filtered, so that only '
+                 'samples found in both files are retained.')},
     'splitter': {
         'test_size': ('Fraction of input samples to exclude from training set '
                       'and use for classifier testing.')},
@@ -226,15 +231,21 @@ plugin.pipelines.register_function(
              ('feature_importance', FeatureData[Importance]),
              ('predictions', SampleData[ClassifierPredictions])
              ] + pipeline_outputs + [
-                ('probabilities', SampleData[Probabilities]),
-                ('heatmap', Visualization)],
+        ('probabilities', SampleData[Probabilities]),
+        ('heatmap', Visualization),
+        ('predprob_truth_train', SampleData[ProbabilitiesTruthTrain]),
+        ('predprob_truth_test', SampleData[ProbabilitiesTruthTest])],
     input_descriptions={'table': input_descriptions['table']},
     parameter_descriptions=classifier_pipeline_parameter_descriptions,
     output_descriptions={
         **pipeline_output_descriptions,
         'probabilities': input_descriptions['probabilities'],
         'heatmap': 'A heatmap of the top 50 most important features from the '
-                   'table.'},
+                   'table.',
+        'predprob_truth_train': 'Predicted probabilities and truth values '
+                                'for train split.',
+        'predprob_truth_test': 'Predicted probabilities and truth values '
+                                'for test split.'},
     name='Train and test a cross-validated supervised learning classifier.',
     description=description.format(
         'categorical', 'supervised learning classifier')
@@ -258,7 +269,7 @@ plugin.pipelines.register_function(
         'metadata': 'Categorical metadata column to use as prediction target.',
         'k': 'Number of nearest neighbors',
         'palette': 'The color palette to use for plotting.',
-        },
+    },
     output_descriptions={
         'predictions': 'leave one out predictions for each sample',
         'accuracy_results': 'Accuracy results visualization.',
@@ -620,10 +631,43 @@ plugin.pipelines.register_function(
 )
 
 
+plugin.methods.register_function(
+    function=get_predprob_splits,
+    inputs={
+        'X_train': FeatureTable[Frequency],
+        'X_test': FeatureTable[Frequency],
+        'sample_estimator': SampleEstimator[Classifier]},
+    parameters={
+        'metadata': MetadataColumn[Categorical],
+        'n_jobs': parameters['base']['n_jobs'],
+        'missing_samples': parameters['base']['missing_samples']},
+    outputs=[('predprob_truth_train', SampleData[ProbabilitiesTruthTrain]),
+             ('predprob_truth_test', SampleData[ProbabilitiesTruthTest])],
+    input_descriptions={
+        'X_train': 'Feature table of train set',
+        'X_test': 'Feature table of test set',
+        'sample_estimator': 'Sample classifier trained with '
+        'fit_classifier on X_train.'},
+    parameter_descriptions={
+        'metadata': 'Categorical metadata column to use as prediction target.',
+        'n_jobs': parameter_descriptions['base']['n_jobs'],
+        'missing_samples': parameter_descriptions['base']['missing_samples']},
+    output_descriptions={
+        'predprob_truth_train': 'Predicted probabilities and '
+        'truth values for train split.',
+        'predprob_truth_test': 'Predicted probabilities and '
+        'truth values for test split.'},
+    name='Use trained classifier to save predicted probabilities and '
+    'true values for test and train split',
+    description=predict_description
+)
+
+
 # Registrations
 plugin.register_semantic_types(
     SampleEstimator, BooleanSeries, Importance, ClassifierPredictions,
-    RegressorPredictions, Classifier, Regressor, Probabilities)
+    RegressorPredictions, Classifier, Regressor, Probabilities,
+    ProbabilitiesTruthTrain, ProbabilitiesTruthTest)
 plugin.register_semantic_type_to_format(
     SampleEstimator[Classifier],
     artifact_format=SampleEstimatorDirFmt)
@@ -645,9 +689,17 @@ plugin.register_semantic_type_to_format(
 plugin.register_semantic_type_to_format(
     SampleData[Probabilities],
     artifact_format=ProbabilitiesDirectoryFormat)
+plugin.register_semantic_type_to_format(
+    SampleData[ProbabilitiesTruthTrain],
+    artifact_format=ProbabilitiesTruthTrainDirectoryFormat)
+plugin.register_semantic_type_to_format(
+    SampleData[ProbabilitiesTruthTest],
+    artifact_format=ProbabilitiesTruthTestDirectoryFormat)
 plugin.register_formats(
     SampleEstimatorDirFmt, BooleanSeriesFormat, BooleanSeriesDirectoryFormat,
     ImportanceFormat, ImportanceDirectoryFormat, PredictionsFormat,
-    PredictionsDirectoryFormat, ProbabilitiesFormat,
-    ProbabilitiesDirectoryFormat)
+    PredictionsDirectoryFormat,
+    ProbabilitiesFormat, ProbabilitiesDirectoryFormat,
+    ProbabilitiesTruthTrainFormat, ProbabilitiesTruthTrainDirectoryFormat,
+    ProbabilitiesTruthTestFormat, ProbabilitiesTruthTestDirectoryFormat)
 importlib.import_module('q2_sample_classifier._transformer')
