@@ -35,7 +35,8 @@ from scipy.stats import randint
 import biom
 
 from .visuals import (_linear_regress, _plot_confusion_matrix, _plot_RFE,
-                      _regplot_from_dataframe, _generate_roc_plots)
+                      _regplot_from_dataframe, _generate_roc_plots,
+                      _plot_one_roc)
 
 _classifiers = ['RandomForestClassifier', 'ExtraTreesClassifier',
                 'GradientBoostingClassifier', 'AdaBoostClassifier',
@@ -867,3 +868,51 @@ def _warn_feature_selection():
          'the parameter settings requested. See documentation or try a '
          'different estimator model.'))
     warnings.warn(warning, UserWarning)
+
+
+def _plot_roc_splits(dic_pred):
+    """
+    Plot ROV curve of all splits in dic_pred.
+    """
+
+    # formatting overal figure
+    plt.rcParams['axes.grid'] = True
+    plt.style.use('seaborn-pastel')
+    fig, ax = plt.subplots()
+    ax.plot([0, 1], [0, 1], linestyle='--',
+            lw=2, color='black', alpha=.8)
+
+    # adding splits roc curve
+    for tag, df_pred in dic_pred.items():
+        col_true = [x for x in df_pred.columns if x.startswith('true')]
+        col_predprob = [x for x in df_pred.columns if x.startswith('predprob')]
+
+        if df_pred.shape[0] > 0:
+            fig = _plot_one_roc(fig, ax, df_pred[col_true].values,
+                                df_pred[col_predprob].values,
+                                model_label=tag + ' ROC')
+        else:
+            raise ValueError(
+                'Split {} does not contain any predictions.'.format(tag))
+
+    return fig
+
+
+def _visualize_comparison(output_dir, ls_classifier_dir, roc,
+                          title):
+
+    # todo: look at _visualize above for more options:
+    # ! cm.to_csv(join(output_dir, 'predictive_accuracy.tsv'),
+    # ! sep='\t', index=True)
+    # ! cm = q2templates.df_to_html(cm)
+    pd.set_option('display.max_colwidth', None)
+
+    if roc is not None:
+        roc = True
+
+    index = join(TEMPLATES, 'model_comparison', 'index.html')
+    q2templates.render(index, output_dir, context={
+        'title': title,
+        'roc': roc,
+        'ls_classifier_dir': ls_classifier_dir
+    })

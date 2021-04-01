@@ -7,6 +7,7 @@
 # ----------------------------------------------------------------------------
 import pandas as pd
 import pandas.util.testing as pdt
+import os
 from os import mkdir, listdir
 from os.path import join
 import biom
@@ -18,7 +19,7 @@ from q2_sample_classifier.visuals import (
     _linear_regress, _calculate_baseline_accuracy,
     _add_sample_size_to_xtick_labels)
 from q2_sample_classifier.classify import (
-    scatterplot, confusion_matrix)
+    scatterplot, confusion_matrix, compare_classifiers)
 from q2_sample_classifier.utilities import (
     _match_series_or_die, _predict_and_plot)
 from q2_sample_classifier.tests.test_base_class import \
@@ -140,7 +141,8 @@ class TestPlottingVisualizers(SampleClassifierTestPluginBase):
     def test_confusion_matrix_dtype_coercion(self):
         predictions = pd.Series([1, 1, 1, 2, 2, 2],
                                 index=pd.Index(['a', 'b', 'c', 'd', 'e', 'f'],
-                                name='sample_id'), name='features')
+                                               name='sample_id'),
+                                name='features')
 
         # NOTE: the targets are numbers but represented as str
         truth = qiime2.CategoricalMetadataColumn(pd.Series(
@@ -235,3 +237,58 @@ class TestPlottingVisualizers(SampleClassifierTestPluginBase):
     def test_match_series_or_die_missing_samples(self):
         with self.assertRaisesRegex(ValueError, "Missing samples"):
             a, b = _match_series_or_die(self.a, self.bogus, 'error')
+
+
+class TestModelComparisonVisualizers(SampleClassifierTestPluginBase):
+    def setUp(self):
+        super().setUp()
+        # setup temp directory for viz
+        self.tmpd = join(self.temp_dir.name, 'viz')
+        mkdir(self.tmpd)
+
+        # get data
+        def _load_cmc(md_fp, column):
+            md_fp = self.get_data_path(md_fp)
+            md = pd.read_csv(md_fp, sep='\t', header=0, index_col=0)
+            md = qiime2.CategoricalMetadataColumn(md[column])
+            return md
+
+        mdc_chard_fp = _load_cmc('chardonnay.map.txt', 'Region')
+        table_fp = self.get_data_path('chardonnay.table.qza')
+        table = qiime2.Artifact.load(table_fp)
+
+        # train 2 classifiers to compare afterwards
+        self.dic_classifiers2compare = {'chard_rf':
+                                        ['RandomForestClassifier', 0.5],
+                                        'chard_GBoost':
+                                        ['GradientBoostingClassifier', 0.5]}
+
+        for output_dir, ls_setup in self.dic_classifiers2compare.items():
+            classifier = ls_setup[0]
+            test_size = ls_setup[1]
+            output_dir = join(self.tmpd, output_dir)
+
+            res = sample_classifier.actions.classify_samples(
+                table=table, metadata=mdc_chard_fp,
+                test_size=test_size, cv=1, n_estimators=10, n_jobs=1,
+                estimator=classifier, random_state=123,
+                parameter_tuning=False, optimize_feature_selection=False,
+                missing_samples='ignore')
+
+            # save output in same loc as in action
+            predprob_truth_train = res[7]
+            predprob_truth_test = res[8]
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+            predprob_truth_test.save(
+                join(output_dir, 'predprob_truth_test.qza'))
+            predprob_truth_train.save(
+                join(output_dir, 'predprob_truth_train.qza'))
+
+    def test_compare_classifiers(self):
+        # ! currently just testing function - not yet QIIME2 action
+        # front os.join required as we saved above output in self.tmpd
+        ls_compare_these = [os.path.join(
+            self.tmpd, x) for x in self.dic_classifiers2compare.keys()]
+
+        compare_classifiers(self.tmpd, ls_compare_these, 'Coombsville')

@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+
+{% block title %}q2-sample-classifier : {{ title }}{% endblock %}
+
+{% block fixed %}{% endblock %}
+
+{% block content %}
+
+<div class="row">
+  {% if roc %}
+  <h1>Classifier Comparison {{ ls_classifier_dir }}</h1>
+
+  <div class="col-lg-12">
+
+    <h3>Receiver Operating Characteristic Curves: Train vs Test</h3>
+    <table>
+      <tr>
+      {% for classifier in ls_classifier_dir %}
+        <th>
+          <center> {{ classifier }} </center>
+          <a href="{{ classifier }}/roc_train_test.pdf">
+            <img src="{{ classifier }}/roc_train_test.png">
+            <br>
+            <center>Download as PDF</center>
+          </a>
+        </th>
+      {% endfor%}
+      </tr>
+    </table>
+
+    <div class="text-justify">
+      <center>text tba</center>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+
+{% endblock %}

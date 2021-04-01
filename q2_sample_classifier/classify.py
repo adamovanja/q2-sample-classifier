@@ -17,13 +17,16 @@ import qiime2
 import pandas as pd
 import biom
 import skbio
+import os
+import matplotlib.pyplot as plt
 
 from .utilities import (_load_data, _prepare_training_data,
                         nested_cross_validation, _fit_estimator,
                         _extract_features, _plot_accuracy,
                         _summarize_estimator, predict_probabilities,
                         _match_series_or_die,
-                        _classifiers)
+                        _classifiers, _plot_roc_splits,
+                        _visualize_comparison)
 
 
 defaults = {
@@ -531,3 +534,54 @@ def get_predprob_splits(X_train: biom.Table,
         ls_predprob_splits.append(df_predprob_true)
 
     return ls_predprob_splits[0], ls_predprob_splits[1]
+
+
+def compare_classifiers(output_dir: str,
+                        ls_classifier_dir: str,
+                        target_class_2analyse: str) -> None:
+    # todo: add input: ls_classifier_tag
+    # todo: add params: split2compare: traintest, train and test
+    # todo: add params: boot: bool - whether to perform boostrapping or not
+    # todo: add params: palette
+
+    for classifier in ls_classifier_dir:
+        print(classifier)
+        # read all predprob into dic_pred
+        dic_pred = {}
+
+        for split in ['train', 'test']:
+            # todo adjust ls to change according to parameter: split2compare
+            # get train/test split
+            path2read = os.path.join(
+                classifier, 'predprob_truth_{}.qza'.format(split))
+            predprob_art = qiime2.Artifact.load(path2read)
+            df_predprob = predprob_art.view(pd.DataFrame)
+
+            # only select target_class and rename
+            ls_col2select = [
+                col for col in df_predprob.columns if
+                col.endswith(target_class_2analyse)]
+            dic_pred[split] = df_predprob[ls_col2select]
+
+        # one roc per classifier - same order as ls_classifier_dir
+        roc = _plot_roc_splits(dic_pred)
+
+        path2save = os.path.join(output_dir, classifier)
+        if not os.path.exists(path2save):
+            os.makedirs(path2save)
+
+        roc.savefig(os.path.join(path2save, 'roc_train_test.png'),
+                    bbox_inches='tight')
+        roc.savefig(os.path.join(path2save, 'roc_train_test.pdf'),
+                    bbox_inches='tight')
+        plt.close(roc)
+        # todo add other figures to be created
+
+    # output all fig to one viz
+    title = 'Comparison of performance for target = {}'.format(
+        target_class_2analyse)
+    # roc = True
+    _visualize_comparison(output_dir,
+                          ls_classifier_dir,
+                          roc,
+                          title)

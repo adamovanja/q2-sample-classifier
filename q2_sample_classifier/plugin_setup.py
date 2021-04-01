@@ -9,7 +9,8 @@
 import importlib
 
 from qiime2.plugin import (
-    Int, Str, Float, Range, Bool, Plugin, Metadata, Choices, MetadataColumn,
+    Int, Str, Float, List, Range, Bool, Plugin, Metadata, Choices,
+    MetadataColumn,
     Numeric, Categorical, Citations, Visualization, TypeMatch)
 from q2_types.feature_table import (
     FeatureTable, Frequency, RelativeFrequency, PresenceAbsence, Balance,
@@ -23,7 +24,7 @@ from .classify import (
     regress_samples_ncv,
     classify_samples_ncv, fit_classifier, fit_regressor, split_table,
     predict_classification, predict_regression, confusion_matrix, scatterplot,
-    summarize, metatable, heatmap, get_predprob_splits)
+    summarize, metatable, heatmap, get_predprob_splits, compare_classifiers)
 from .visuals import _custom_palettes
 from ._format import (SampleEstimatorDirFmt,
                       BooleanSeriesFormat,
@@ -660,6 +661,36 @@ plugin.methods.register_function(
     name='Use trained classifier to save predicted probabilities and '
     'true values for test and train split',
     description=predict_description
+)
+
+
+plugin.visualizers.register_function(
+    function=compare_classifiers,
+    inputs={
+        #  'ls_classifier_predprob_test':
+        # List[SampleData[ProbabilitiesTruthTest]],
+        # 'ls_classifier_predprob_train':
+        # List[SampleData[ProbabilitiesTruthTrain]]
+    },
+    parameters={
+        'ls_classifier_dir': List[Str],
+        'target_class_2analyse': Str
+        # 'palette': Str % Choices(_custom_palettes().keys())
+    },
+    input_descriptions={
+        # 'ls_classifier_predprob_test':
+        # 'Hopefully not',
+        # 'ls_classifier_predprob_train':
+        # 'Hopefully not'
+    },
+    parameter_descriptions={
+        'ls_classifier_dir': 'List of trained classifier directories '
+        'to compare',
+        'target_class_2analyse': 'tba'
+    },
+    name='Compare trained classifiers.',
+    description='Compare trained classifiers.'
+    # todo be more specific and extend
 )
 
 

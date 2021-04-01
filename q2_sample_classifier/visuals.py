@@ -7,7 +7,8 @@
 # ----------------------------------------------------------------------------
 
 from sklearn.metrics import (
-    mean_squared_error, confusion_matrix, accuracy_score, roc_curve, auc)
+    mean_squared_error, confusion_matrix, accuracy_score,
+    roc_curve, auc, roc_auc_score)
 from sklearn.preprocessing import label_binarize
 from itertools import cycle
 from scipy import interp
@@ -104,7 +105,7 @@ def _plot_heatmap_from_confusion_matrix(cm, palette, vmin=None, vmax=None):
     plt.figure()
     scaler, labelsize, dpi, cbar_min = 20, 8, 100, .15
     sns.set(rc={'xtick.labelsize': labelsize, 'ytick.labelsize': labelsize,
-            'figure.dpi': dpi})
+                'figure.dpi': dpi})
     fig, (ax, cax) = plt.subplots(ncols=2, constrained_layout=True)
     heatmap = sns.heatmap(cm, vmin=vmin, vmax=vmax, cmap=palette, ax=ax,
                           cbar_ax=cax, cbar_kws={'label': 'Proportion'},
@@ -117,7 +118,7 @@ def _plot_heatmap_from_confusion_matrix(cm, palette, vmin=None, vmax=None):
     cbar_height = max(cbar_min, scale)
     ax.set_position([hm_pos.x0, hm_pos.y0, scale, scale])
     cax.set_position([hm_pos.x0 + scale * .95, hm_pos.y0, scale / len(cm),
-                     cbar_height])
+                      cbar_height])
 
     # Make the heatmap subplot (not the colorbar) the active axis object so
     # labels apply correctly on return
@@ -384,5 +385,104 @@ def _roc_plot(fpr, tpr, roc_auc, classes, colors):
         plt.plot(fpr[c], tpr[c], color=color, lw=lw,
                  label='{0} (AUC = {1:0.2f})'.format(c, roc_auc[c]))
     axes[1].legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
+
+    return fig
+
+
+def _plot_one_roc(fig, ax, y_true, y_predprob, model_label=''):
+    """
+    Plot ROC curve for y_true and y_predprob
+    """
+    # todo adapt below to also plot for axis
+    fpr, tpr, thresh = roc_curve(y_true, y_predprob)
+    auc = roc_auc_score(y_true, y_predprob)
+
+    ax.plot(fpr, tpr, label=model_label + ", auc=  %0.3f" % (auc))
+    ax.legend(loc=0)
+    ax.set_xlabel('False positive rate')
+    ax.set_ylabel('True positive rate')
+    plt.grid(True)
+
+    return fig
+
+
+def _plot_one_roc_bootstrapped(fig, ax, y_true_all, y_predprob_all,
+                               model_label=''):
+    """
+    ! implementation could be flawed - not recommended
+    ! to use this method yet.
+    todo: check how stddev is implemented in corresponding pROC package in R
+    todo: source: https://cran.r-project.org/web/packages/pROC/pROC.pdf
+    Plot ROC curve plotting confidence intervals of ROC curves
+    by bootstrapping
+    adapted from:
+    https://stackoverflow.com/questions/19124239/scikit-learn
+    -roc-curve-with-confidence-intervals
+    """
+    # fig, ax = plt.subplots()
+    # ax.plot([0, 1], [0, 1], linestyle='--', lw=2, color='black', alpha=.8)
+
+    n_bootstraps = 10000
+    rng_seed = 12  # control reproducibility
+
+    bootstrapped_aucs = []
+    bootstrapped_tprs = []
+    mean_fpr = np.linspace(0, 1, 100)
+
+    rng = np.random.RandomState(rng_seed)
+    for i in range(n_bootstraps):
+        # bootstrap by sampling with replacement on the prediction indices
+        indices = rng.randint(0, len(y_predprob_all), len(y_predprob_all))
+        if len(np.unique(y_true_all[indices])) < 2:
+            # We need at least one positive and one negative sample for ROC AUC
+            # to be defined: reject the sample
+            continue
+
+        # get ROC curve info (TPR and FPR)
+        fpr, tpr, thresh = roc_curve(y_true_all[indices],
+                                     y_predprob_all[indices])
+        # 1D linear interpolation - returns 1D piecewise linear interpolant
+        # to a function with given discrete data points (xp, fp),
+        # evaluated at x
+        interp_tpr = np.interp(mean_fpr, fpr, tpr)
+        interp_tpr[0] = 0.0
+        bootstrapped_tprs.append(interp_tpr)
+
+        # get AUCs scores:
+        score = roc_auc_score(y_true_all[indices],
+                              y_predprob_all[indices])
+        bootstrapped_aucs.append(score)
+
+    # calculate mean AUC and confidence interval
+    sorted_auc = np.array(bootstrapped_aucs)
+    sorted_auc.sort()
+
+    # mean_auc = np.mean(sorted_auc)
+    # confidence_lower = sorted_auc[int(0.05 * len(sorted_auc))]
+    # confidence_upper = sorted_auc[int(0.95 * len(sorted_auc))]
+
+    #  plotting variance as (+/- std)
+    mean_tpr = np.mean(bootstrapped_tprs, axis=0)
+    mean_tpr[-1] = 1.0
+
+    # auc(mean_fpr, mean_tpr)
+    mean_auc = roc_auc_score(y_true_all, y_predprob_all)
+    std_auc = np.std(bootstrapped_aucs)
+
+    ax.plot(mean_fpr,
+            mean_tpr,
+            label=model_label +
+            r', auc = %0.3f $\pm$ %0.3f'
+            % (mean_auc, std_auc), lw=2, alpha=.8)
+    std_tpr = np.std(bootstrapped_tprs, axis=0)
+    tprs_upper = np.minimum(mean_tpr + std_tpr, 1)
+    tprs_lower = np.maximum(mean_tpr - std_tpr, 0)
+
+    # , color = 'grey', label=r'$\pm$ 1 std. dev.')
+    ax.fill_between(mean_fpr, tprs_lower, tprs_upper, alpha=.3)
+    ax.set(xlim=[-0.05, 1.05], ylim=[-0.05, 1.05])
+    ax.set_xlabel('False positive rate')
+    ax.set_ylabel('True positive rate')
+    ax.legend(loc=0)
 
     return fig
